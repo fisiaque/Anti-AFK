@@ -2,7 +2,7 @@
 setlocal
 
 REM Configurable parameters
-set "AFK_TIME=9"        REM Time in minutes before AFK
+set "AFK_TIME=5"        REM Time in minutes before AFK
 set "APPS=RobloxPlayerBeta, ApplicationFrameHost"  REM List of process names (no .exe)
 set "KEY_TO_PRESS=h"    REM Key to press 
 
