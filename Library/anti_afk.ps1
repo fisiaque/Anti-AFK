@@ -54,28 +54,24 @@ function Invoke-Ping {
     [Console]::Beep($frequency, $duration)
 }
 
-# Launch apps if not running
+# Check if the required parameters are provided
 $processes = @()
 foreach ($app in $APPS) {
     $proc = Get-Process -Name $app -ErrorAction SilentlyContinue
     if (-not $proc) {
-        Write-Host "Starting process: $app"
-        $proc = Start-Process $app -PassThru
-
-        # Wait for main window to become available
-        $maxWait = 5
-        while ($maxWait -gt 0 -and $proc.MainWindowHandle -eq 0) {
-            Start-Sleep -Milliseconds 200
-            $proc = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
-            $maxWait -= 0.2
-        }
+        continue
     }
     $processes += $proc
 }
 
+if ($processes.Count -eq 0) {
+    Write-Host "No apps running. Exiting script."
+    exit
+}
+
 Add-Type -AssemblyName System.Windows.Forms
 
-$idleSecondsThreshold = $AFK_TIME #* 60
+$idleSecondsThreshold = $AFK_TIME * 60
 $timer = 0
 
 Write-Host "Press 'Q' in this console at any time to stop the script."
