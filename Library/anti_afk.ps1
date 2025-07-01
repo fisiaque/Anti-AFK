@@ -1,15 +1,19 @@
 param (
-    [int]$AFK_TIME = 0,                        
+    [float]$AFK_TIME = 0,                        
     [string[]]$APPS = @(''),                    
-    [string]$KEY_TO_PRESS = ''                  
+    [string]$KEY_TO_PRESS = '',   
+    [bool]$PLAY_PING = $false              
 )
 
 # Convert comma-separated APPS into array
+$afkTimeInMinutes = [math]::Round($AFK_TIME / 60, 2)
 $APPS = $APPS -split ','
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-Write-Host "Apps: $($APPS -join ', ')"
-Write-Host "AFK Time: $AFK_TIME minutes"
-Write-Host "Key to Press: '$KEY_TO_PRESS'"
+Write-Host "Attempting to monitor Apps: $($APPS -join ', ')."
+Write-Host "AFK Time: $afkTimeInMinutes minutes."
+Write-Host "Key to Press: '$KEY_TO_PRESS'."
+Write-Host "Sound Ping: $PLAY_PING."
 
 # Load necessary Win32 APIs
 Add-Type @"
@@ -17,6 +21,9 @@ using System;
 using System.Runtime.InteropServices;
 
 public class NativeMethods {
+    [DllImport("user32.dll")]
+    public static extern bool BlockInput(bool fBlockIt);
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
@@ -41,6 +48,22 @@ public class NativeMethods {
 }
 "@
 
+function Get-ElaspsedTime {
+    $elapsed = $stopwatch.Elapsed
+
+    if ($elapsed.TotalHours -lt 24) {
+        $timestamp = $elapsed.ToString("hh\:mm\:ss")
+    }
+    else {
+        $days = [int]$elapsed.TotalDays
+        $hours = $elapsed.Hours
+        $minutes = $elapsed.Minutes
+        $timestamp = "{0}d {1}h {2}m" -f $days, $hours, $minutes
+    }
+
+    return $timestamp
+}
+
 function Set-WindowToFront {
     param ([IntPtr]$hwnd)
     [NativeMethods]::ShowWindow($hwnd, 9) | Out-Null  # SW_RESTORE
@@ -51,6 +74,10 @@ function Invoke-Ping {
         [int]$frequency,
         [int]$duration
     )
+    if (-not $PLAY_PING) {
+        return  # Exit if ping sound is disabled
+    }
+    
     [Console]::Beep($frequency, $duration)
 }
 
@@ -65,35 +92,38 @@ foreach ($app in $APPS) {
 }
 
 if ($processes.Count -eq 0) {
-    Write-Host "No apps running. Exiting script."
-    exit
+    Write-Host "No matching apps from the list are currently running."
+    Start-Sleep -Seconds 1
+    Write-Host "Available running processes you can use in -APPS parameter:"
+    Write-Host "--------------------------------------------------"
+    Get-Process | Where-Object { $_.MainWindowTitle } |
+    Select-Object -Property Id, ProcessName, MainWindowTitle |
+    Sort-Object ProcessName |
+    Format-Table -AutoSize
+    Write-Host "--------------------------------------------------"
+    Write-Host "Press Enter to exit..."
+    [void][Console]::ReadLine()  # Wait for Enter key press
+    exit  # Exit the script immediately
 }
 
 Add-Type -AssemblyName System.Windows.Forms
 
-$idleSecondsThreshold = $AFK_TIME * 60
 $timer = 0
+$maxWait = 5  # seconds until we give up on bringing the window to the front
 
-Write-Host "Press 'Q' in this console at any time to stop the script."
+$monitoredApps = $processes.ProcessName | Sort-Object -Unique
+Write-Host "$(Get-ElaspsedTime): Monitoring the following apps: $($monitoredApps -join ', ')"
 
 while ($true) {
     Start-Sleep -Milliseconds 100
     $timer += 0.1
 
-    # Kill switch
-    if ([console]::KeyAvailable) {
-        $key = [console]::ReadKey($true)
-        if ($key.Key -eq 'Q') {
-            Write-Host "Exit key 'Q' pressed, stopping..."
-            break
-        }
-    }
-
-    if ($timer -ge $idleSecondsThreshold) {
+    if ($timer -ge $AFK_TIME) {
         ## play ping sound
         Invoke-Ping 1000 200
-        Start-Sleep -Milliseconds 100
-        Invoke-Ping 1200 200
+
+        # BLOCK INPUT
+        [NativeMethods]::BlockInput($true) | Out-Null  
 
         $originalForeground = [NativeMethods]::GetForegroundWindow()
 
@@ -104,14 +134,25 @@ while ($true) {
                 [NativeMethods]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
 
                 Set-WindowToFront -hwnd $hwnd
-                Start-Sleep -Milliseconds 150
 
-                # Double key press
-                [System.Windows.Forms.SendKeys]::SendWait($KEY_TO_PRESS)
-                Start-Sleep -Milliseconds 150
-                [System.Windows.Forms.SendKeys]::SendWait($KEY_TO_PRESS)
+                $elapsed = 0
+                while ([NativeMethods]::GetForegroundWindow() -ne $hwnd -and $elapsed -lt $maxWait) {
+                    Start-Sleep -Milliseconds 100
+                    $elapsed += 0.1
+                }
 
-                Write-Host "Double-pressed '$KEY_TO_PRESS' in window of process $($proc.ProcessName)."
+                # make sure window is actually at front
+                if ([NativeMethods]::GetForegroundWindow() -eq $hwnd) {
+                    [System.Windows.Forms.SendKeys]::SendWait($KEY_TO_PRESS)
+                    Start-Sleep -Milliseconds 100  # Small delay to ensure key press is registered
+                    [System.Windows.Forms.SendKeys]::SendWait($KEY_TO_PRESS)
+
+                    Write-Host "$(Get-ElaspsedTime): Pressed '$KEY_TO_PRESS' in window of process $($proc.ProcessName)."
+                }
+                else {
+                    Write-Warning "$(Get-ElaspsedTime): Timed out waiting for $($proc.ProcessName)'s window to come to front."
+                }
+
 
                 [NativeMethods]::MoveWindow($hwnd, $rect.Left, $rect.Top, $rect.Right - $rect.Left, $rect.Bottom - $rect.Top, $true) | Out-Null
             }
@@ -125,7 +166,8 @@ while ($true) {
 
         ## end ping sound
         Invoke-Ping 600 300
-        Start-Sleep -Milliseconds 100
-        Invoke-Ping 500 400
+
+        # UNBLOCK INPUT
+        [NativeMethods]::BlockInput($false) | Out-Null  
     }
 }
