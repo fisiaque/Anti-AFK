@@ -281,16 +281,11 @@ function Get-ValidatedKeys {
     foreach ($key in $keys) {
         $key = $key.ToUpper()
 
-        if ($key.StartsWith("VK_")) {
-            if ($validKeys -contains $key) {
-                $validKeysToPress += $key
-            }
-        } 
-        elseif ($validKeys -contains "VK_" + $key) {
-            $validKeysToPress += "VK_" + $key
-        }
-        elseif ($validKeys -contains $key) {
+        if ($validKeys -contains $key) {
             $validKeysToPress += $key
+        }
+				elseif ($validKeys -contains "VK_" + $key) {
+            $validKeysToPress += "VK_" + $key
         }
     }
 
