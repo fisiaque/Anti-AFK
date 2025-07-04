@@ -284,7 +284,7 @@ function Get-ValidatedKeys {
         if ($validKeys -contains $key) {
             $validKeysToPress += $key
         }
-				elseif ($validKeys -contains "VK_" + $key) {
+        elseif ($validKeys -contains "VK_" + $key) {
             $validKeysToPress += "VK_" + $key
         }
     }
