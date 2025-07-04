@@ -33,13 +33,15 @@ if errorlevel 1 (
 goto :eof
 
 :admin
-set "AFK_TIME=5" :: AFK_TIME in seconds (default is 600 seconds = 10 minutes)
-set "APPS=RobloxPlayerBeta" :: APPS is a comma-separated list of application names to monitor , RobloxPlayerBeta,ApplicationFrameHost
-set "KEY_TO_PRESS= " :: KEY_TO_PRESS is the key to simulate pressing when AFK
+:: CONFIGURABLE
+set "AFK_TIME=900" :: AFK_TIME in seconds (default is 900 seconds = 15 minutes)
 set "PLAY_PING=true" :: PLAY_PING is a boolean to enable/disable ping sound
+set "APPS=RobloxPlayerBeta,ApplicationFrameHost" :: APPS is a comma-separated list of application names to monitor , RobloxPlayerBeta,ApplicationFrameHost
+set "SHOULD_MINIMIZE=false" :: Window minizes after every AFK_TIME
+set "KEYS_TO_PRESS=h" :: KEY TO PRESS IN CAPS! CAN MAKE MULTIPLE BUTTONS (h, space, w, 2, f) etc
 
-
+:::::::::::::::::::::::::::::
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
- "& { . '%~dp0Library\anti_afk.ps1' -AFK_TIME %AFK_TIME% -APPS '%APPS%' -KEY_TO_PRESS '%KEY_TO_PRESS%' -PLAY_PING ([bool]::Parse('%PLAY_PING%')) }"
+ "& { . '%~dp0Library\anti_afk.ps1' -AFK_TIME %AFK_TIME% -APPS '%APPS%' -PLAY_PING ([bool]::Parse('%PLAY_PING%')) -SHOULD_MINIMIZE ([bool]::Parse('%SHOULD_MINIMIZE%')) -KEYS_TO_PRESS '%KEYS_TO_PRESS%' }"
 
 pause
