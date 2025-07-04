@@ -83,20 +83,23 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Linq;
+using System.IO;
 
 public class PressKey
 {
     private static Assembly inputAssembly = null;  
-    private bool debug;  =
+    private bool debug;
 
     // initialize the debug flag
-    public PressKey(bool debug = false)
+    public PressKey(bool debug = false, string scriptDirectory = "")
     {
         this.debug = debug;
 
         if (inputAssembly == null)
         {
-            string dllPath = "C:\\Users\\fisia\\OneDrive\\Documents\\Github\\Anti-AFK\\Library\\WindowsInput.dll";  // Absolute path
+            DebugWriteLine(scriptDirectory);
+            string dllPath = scriptDirectory + "\\WindowsInput.dll";
+
             DebugWriteLine("Loading DLL from: " + dllPath);
 
             try
@@ -407,7 +410,7 @@ while ($true) {
                             Write-Host "$(Get-ElaspsedTime): Could not focus $app. Skipping."
                             continue
                         }
-                        $pressKeyInstance = New-Object PressKey -ArgumentList $false
+                        $pressKeyInstance = New-Object PressKey -ArgumentList $false, $PSScriptRoot
                         $pressKeyInstance.SimulateKeyPress($validKeysToPress)
 
                         Write-Host "$(Get-ElaspsedTime): Pressed in $app."
