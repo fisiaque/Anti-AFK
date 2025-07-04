@@ -213,6 +213,9 @@ while ($true) {
                         $originalWidth = $rect.Right - $rect.Left
                         $originalHeight = $rect.Bottom - $rect.Top
 
+                        $isOriginalMinimized = [NativeMethods]::IsIconic($hwnd)
+                        if ($null -eq $isOriginalMinimized) { $isOriginalMinimized = $true }
+
                         $showWindow = [NativeMethods]::ShowWindow($hwnd, 9)  # SW_RESTORE
                         
                         if (-not $showWindow) {
@@ -242,24 +245,24 @@ while ($true) {
                             Write-Host "$(Get-ElapsedTime): Could not focus $app. Skipping."
                             continue
                         }
-                        else {
-                            # restore the original position and size
-                            [NativeMethods]::MoveWindow(
-                                $hwnd,
-                                $originalX,
-                                $originalY,
-                                $originalWidth,
-                                $originalHeight,
-                                $true
-                            ) | Out-Null
-
-                        }
 
                         $pressKeyInstance.SimulateKeyPress($validKeysToPress)
 
                         Write-Host "$(Get-ElapsedTime): Pressed in $app."
 
                         if (-not $SHOULD_MINIMIZE) { 
+                            # restore the original position and size if not minimized
+                            if (-not $isOriginalMinimized) {
+                                [NativeMethods]::MoveWindow(
+                                    $hwnd,
+                                    $originalX,
+                                    $originalY,
+                                    $originalWidth,
+                                    $originalHeight,
+                                    $true
+                                ) | Out-Null
+                            }
+                            
                             [NativeMethods]::SetWindowPos(
                                 $hwnd,
                                 [NativeMethods]::HWND_BOTTOM,
