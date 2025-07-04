@@ -3,203 +3,19 @@ param (
     [string[]]$APPS = @(""),
     [bool]$PLAY_PING = $false,
     [bool]$SHOULD_MINIMIZE = $false,
-    [string[]]$KEYS_TO_PRESS = @("")
+    [string[]]$KEYS_TO_PRESS = @(""),
+    [string]$DIRECTORY = ""
 )
 
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$dllsPath = Join-Path $DIRECTORY "DLLs"
+$libraryPath = Join-Path $DIRECTORY "Library"
 
-# NativeMethods class definition as a string
-$NativeMethodsSnippet = @"
-using System;
-using System.Runtime.InteropServices;
-using System.Threading;
+$nativeMethodsCode = Get-Content -Path (Join-Path $libraryPath "NativeMethods.cs") -Raw
+$pressKeyCode = Get-Content -Path (Join-Path $libraryPath "PressKey.cs") -Raw
 
-public class NativeMethods {
-    public struct Rect {
-       public int Left { get; set; }
-       public int Top { get; set; }
-       public int Right { get; set; }
-       public int Bottom { get; set; }
-    }
-
-    [DllImport("user32.dll")]
-    public static extern bool BlockInput(bool fBlockIt);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    public static extern bool GetWindowRect(IntPtr hwnd, ref Rect rectangle);
-
-    [DllImport("user32.dll")]
-    public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-    public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
-    public const UInt32 SWP_NOSIZE = 0x0001;
-    public const UInt32 SWP_NOMOVE = 0x0002;
-    public const UInt32 SWP_NOACTIVATE = 0x0010;
-
-    const uint ENABLE_QUICK_EDIT = 0x0040;
-    const int STD_INPUT_HANDLE = -10;
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern IntPtr GetStdHandle(int nStdHandle);
-
-    [DllImport("kernel32.dll")]
-    static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
-
-    [DllImport("kernel32.dll")]
-    static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
-
-    public static bool SetQuickEdit(bool SetEnabled)
-    {
-        IntPtr consoleHandle = GetStdHandle(STD_INPUT_HANDLE);
-        uint consoleMode;
-        if (!GetConsoleMode(consoleHandle, out consoleMode)) { return false; }
-        if (SetEnabled) {
-            consoleMode |= ENABLE_QUICK_EDIT;
-        } else {
-            consoleMode &= ~ENABLE_QUICK_EDIT;
-        }
-        if (!SetConsoleMode(consoleHandle, consoleMode)) { return false; }
-        return true;
-    }
-}
-"@
-
-# PressKey class definition as a string
-$PressKeySnippet = @"
-using System;
-using System.Reflection;
-using System.Threading;
-using System.Linq;
-using System.IO;
-
-public class PressKey
-{
-    private static Assembly inputAssembly = null;  
-    private bool debug;
-
-    // initialize the debug flag
-    public PressKey(bool debug = false, string scriptDirectory = "")
-    {
-        this.debug = debug;
-
-        if (inputAssembly == null)
-        {
-            DebugWriteLine(scriptDirectory);
-            string dllPath = scriptDirectory + "\\WindowsInput.dll";
-
-            DebugWriteLine("Loading DLL from: " + dllPath);
-
-            try
-            {
-                inputAssembly = Assembly.LoadFrom(dllPath);  // load DLL only once
-                DebugWriteLine("DLL loaded successfully.");
-            }
-            catch (Exception ex)
-            {
-                DebugWriteLine("Failed to load DLL: " + ex.Message);
-            }
-        }
-        else
-        {
-            DebugWriteLine("DLL is already loaded.");
-        }
-    }
-
-    public void SimulateKeyPress(string[] validKeysToPress)
-    {
-        if (inputAssembly == null)
-        {
-            DebugWriteLine("Assembly not loaded. Cannot simulate key press.");
-            return; // exit the method early if the assembly is not loaded
-        }
-
-        Type inputSimulatorType = inputAssembly.GetType("WindowsInput.InputSimulator");
-        if (inputSimulatorType == null)
-        {
-            DebugWriteLine("Failed to find InputSimulator type.");
-            return;
-        }
-
-        var inputSimulator = Activator.CreateInstance(inputSimulatorType);
-        if (inputSimulator == null)
-        {
-            DebugWriteLine("Failed to create an instance of InputSimulator.");
-            return;
-        }
-
-        var keyboardProperty = inputSimulatorType.GetProperty("Keyboard");
-        if (keyboardProperty == null)
-        {
-            DebugWriteLine("Failed to get Keyboard property.");
-            return;
-        }
-
-        var keyboard = keyboardProperty.GetValue(inputSimulator);
-        if (keyboard == null)
-        {
-            DebugWriteLine("Failed to get Keyboard instance.");
-            return;
-        }
-
-        var keyDownMethod = keyboard.GetType().GetMethod("KeyDown");
-        var keyUpMethod = keyboard.GetType().GetMethod("KeyUp");
-        if (keyDownMethod == null || keyUpMethod == null)
-        {
-            DebugWriteLine("Failed to get KeyDown or KeyUp method.");
-            return;
-        }
-
-        try
-        {
-            var virtualKeyCodeType = inputAssembly.GetType("WindowsInput.Native.VirtualKeyCode");
-
-            // loop through each key in the validKeysToPress array
-            foreach (var key in validKeysToPress)
-            {
-                // default to SPACE if key is invalid
-                string keyName = Enum.GetNames(virtualKeyCodeType).Contains(key) ? key : "SPACE";
-
-                // parse the key name to get the corresponding VirtualKeyCode
-                var virtualKeyCode = Enum.Parse(virtualKeyCodeType, keyName);
-
-                keyDownMethod.Invoke(keyboard, new object[] { virtualKeyCode });
-                Thread.Sleep(50); // short delay to mimic real key press
-                keyUpMethod.Invoke(keyboard, new object[] { virtualKeyCode });
-
-                DebugWriteLine("Successfully simulated " + keyName + " key press.");
-            }
-        }
-        catch (Exception ex)
-        {
-            DebugWriteLine("Error during key press simulation: " + ex.Message);
-        }
-    }
-
-    private void DebugWriteLine(string message)
-    {
-        if (debug)
-        {
-            Console.WriteLine(message);
-        }
-    }
-}
-"@
-
-Add-Type -TypeDefinition $NativeMethodsSnippet -Language CSharp
-Add-Type -TypeDefinition $PressKeySnippet -Language CSharp
+Add-Type -TypeDefinition $nativeMethodsCode -Language CSharp
+Add-Type -TypeDefinition $pressKeyCode -Language CSharp
 Add-Type -AssemblyName System.Windows.Forms
 
 function Get-ElaspsedTime {
@@ -247,9 +63,14 @@ function Set-QuickEdit {
 
 Set-QuickEdit -DisableQuickEdit
 
-$afkTimeInMinutes = [math]::Round($AFK_TIME / 60, 2)
+$AFK_TIME = [math]::Floor($AFK_TIME)
 $APPS = ($APPS -replace "\s*,\s*", ",") -split "," | Where-Object { $_ -ne "" }
 $KEYS_TO_PRESS = ($KEYS_TO_PRESS -replace "\s*,\s*", ",") -split "," | Where-Object { $_ -ne "" }
+
+# makes sure the user input is never less than 1
+if ($AFK_TIME -lt 1) {
+    $AFK_TIME = 1
+}
 
 function Get-ValidatedKeys {
     param (
@@ -300,20 +121,19 @@ function Get-ValidatedKeys {
 $validKeysToPress = Get-ValidatedKeys -keys $KEYS_TO_PRESS
 
 Write-Host "Monitoring Apps: $($APPS -join ", ")"
-Write-Host "AFK Time: $afkTimeInMinutes minutes"
+Write-Host "AFK Time: $AFK_TIME minutes"
 Write-Host "Keys to awaken: $($KEYS_TO_PRESS -join ", ")"
 Write-Host "Sound Ping: $PLAY_PING"
 Write-Host "Should Minimize: $SHOULD_MINIMIZE"
 
-$timer = 0
-$timeout = 2000
-$interval = 200
 $lastCachedProcsNames = "" 
 $alreadyMessaged = $false
+$cycles = 0
+
+$pressKeyInstance = New-Object PressKey -ArgumentList $false, $dllsPath
 
 while ($true) {
     Start-Sleep -Milliseconds 100
-    $timer += 0.1
 
     if (-not $APPS -or $APPS.Count -eq 0) {
         continue
@@ -325,9 +145,17 @@ while ($true) {
         $currentProcs = [System.Diagnostics.Process]::GetProcessesByName($app)
     
         foreach ($proc in $currentProcs) {
-            if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
-                $activeProcs[$app] = $activeProcs[$app] + , $proc
-                $currentProcsNames += $proc.ProcessName + ", "
+            try {
+                if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+                    $activeProcs[$app] = $activeProcs[$app] + , $proc
+                    $currentProcsNames += $proc.ProcessName + ", "
+                }
+            }
+            catch {
+                Write-Host "$(Get-ElaspsedTime): Error accessing $app process: $_"
+            }
+            finally {
+                $proc.Dispose()
             }
         }
     }
@@ -339,8 +167,9 @@ while ($true) {
             Write-Host "$(Get-ElaspsedTime): No monitored apps running. Waiting..."
             $alreadyMessaged = $true
         }
-       
-        $timer = 0
+
+        Start-Sleep -Seconds 5
+        
         continue
     }
     else {
@@ -351,8 +180,11 @@ while ($true) {
             $lastCachedProcsNames = $currentProcsNames  
         }
     }
+    
+    $elapsedMinutes = [math]::Floor($stopwatch.Elapsed.TotalMinutes)
+    $currentCycle = [math]::Floor($elapsedMinutes / $AFK_TIME)
 
-    if ($timer -ge $AFK_TIME) {
+    if ($currentCycle -gt $cycles) {
         $runningApps = $activeProcs.Keys
         Write-Host "$(Get-ElaspsedTime):"Waking up": $($runningApps -join ", ")"
 
@@ -382,15 +214,14 @@ while ($true) {
 
                         [NativeMethods]::SetForegroundWindow($hwnd) | Out-Null                       
                         
+                        $timeout = 2000
+                        $interval = 200
                         $elapsed = 0
                         while ($elapsed -lt $timeout) {
                             Start-Sleep -Milliseconds $interval
                             $elapsed += $interval
 
-                            $foregroundHwnd = [NativeMethods]::GetForegroundWindow()
-                            $hwnd = $proc.MainWindowHandle
-                           
-                            if ($hwnd -eq [IntPtr]::Zero) { continue }
+                            $foregroundHwnd = [NativeMethods]::GetForegroundWindow()                           
                             if ($foregroundHwnd -eq $hwnd) { break }
                             
                             $showWindow = [NativeMethods]::ShowWindow($hwnd, 9)  # SW_RESTORE
@@ -398,11 +229,12 @@ while ($true) {
                                 [NativeMethods]::SetForegroundWindow($hwnd) | Out-Null
                             }
                         }
+
                         if ($elapsed -ge $timeout) {
                             Write-Host "$(Get-ElaspsedTime): Could not focus $app. Skipping."
                             continue
                         }
-                        $pressKeyInstance = New-Object PressKey -ArgumentList $false, $PSScriptRoot
+
                         $pressKeyInstance.SimulateKeyPress($validKeysToPress)
 
                         Write-Host "$(Get-ElaspsedTime): Pressed in $app."
@@ -429,7 +261,7 @@ while ($true) {
         finally {
             [NativeMethods]::BlockInput($false) | Out-Null
             Invoke-Ping 600 300
-            $timer = 0
+            $cycles = $currentCycle
         }
     }
 }
