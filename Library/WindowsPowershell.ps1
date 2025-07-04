@@ -18,7 +18,7 @@ Add-Type -TypeDefinition $nativeMethodsCode -Language CSharp
 Add-Type -TypeDefinition $pressKeyCode -Language CSharp
 Add-Type -AssemblyName System.Windows.Forms
 
-function Get-ElaspsedTime {
+function Get-ElapsedTime {
     $elapsed = $stopwatch.Elapsed
     if ($elapsed.TotalHours -lt 24) {
         $timestamp = $elapsed.ToString("hh\:mm\:ss")
@@ -45,18 +45,18 @@ function Set-QuickEdit {
     param([switch]$DisableQuickEdit = $false)
     if ($DisableQuickEdit) {
         if ([NativeMethods]::SetQuickEdit($false)) {
-            Write-Host "$(Get-ElaspsedTime): QuickEdit disabled."
+            Write-Host "$(Get-ElapsedTime): QuickEdit disabled."
         }
         else {
-            Write-Host "$(Get-ElaspsedTime): Failed to disable QuickEdit."
+            Write-Host "$(Get-ElapsedTime): Failed to disable QuickEdit."
         }
     }
     else {
         if ([NativeMethods]::SetQuickEdit($true)) {
-            Write-Host "$(Get-ElaspsedTime): QuickEdit enabled."
+            Write-Host "$(Get-ElapsedTime): QuickEdit enabled."
         }
         else {
-            Write-Host "$(Get-ElaspsedTime): Failed to enable QuickEdit."
+            Write-Host "$(Get-ElapsedTime): Failed to enable QuickEdit."
         }
     }
 }
@@ -152,9 +152,7 @@ while ($true) {
                 }
             }
             catch {
-                Write-Host "$(Get-ElaspsedTime): Error accessing $app process: $_"
-            }
-            finally {
+                Write-Host "$(Get-ElapsedTime): Error accessing $app process: $_"
                 $proc.Dispose()
             }
         }
@@ -164,7 +162,7 @@ while ($true) {
         $lastCachedProcsNames = "" 
 
         if (-not $alreadyMessaged) {
-            Write-Host "$(Get-ElaspsedTime): No monitored apps running. Waiting..."
+            Write-Host "$(Get-ElapsedTime): No monitored apps running. Waiting..."
             $alreadyMessaged = $true
         }
 
@@ -176,7 +174,7 @@ while ($true) {
         $alreadyMessaged = $false
 
         if ($currentProcsNames -ne $lastCachedProcsNames) {
-            Write-Host "$(Get-ElaspsedTime): Newly Monitoring List: ($($currentProcsNames.TrimEnd(", ")))"
+            Write-Host "$(Get-ElapsedTime): Newly Monitoring List: ($($currentProcsNames.TrimEnd(", ")))"
             $lastCachedProcsNames = $currentProcsNames  
         }
     }
@@ -184,13 +182,14 @@ while ($true) {
     $elapsedMinutes = [math]::Floor($stopwatch.Elapsed.TotalMinutes)
     $currentCycle = [math]::Floor($elapsedMinutes / $AFK_TIME)
 
-    if ($currentCycle -gt $cycles) {
+    if ($currentCycle -ge $cycles) {
+        $cycles++
         $runningApps = $activeProcs.Keys
-        Write-Host "$(Get-ElaspsedTime):"Waking up": $($runningApps -join ", ")"
+        Write-Host "$(Get-ElapsedTime):"Waking up": $($runningApps -join ", ")"
 
         Invoke-Ping 1000 200
         3..1 | ForEach-Object {
-            Write-Host "$(Get-ElaspsedTime): Initializing in $_..."
+            Write-Host "$(Get-ElapsedTime): Initializing in $_..."
             Start-Sleep -Seconds 1
         }
 
@@ -205,10 +204,19 @@ while ($true) {
                         $hwnd = $proc.MainWindowHandle
                         if ($hwnd -eq [IntPtr]::Zero) { continue }
 
+                        # save the original window position and size
+                        $rect = New-Object NativeMethods+Rect
+                        [NativeMethods]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+
+                        $originalX = $rect.Left
+                        $originalY = $rect.Top
+                        $originalWidth = $rect.Right - $rect.Left
+                        $originalHeight = $rect.Bottom - $rect.Top
+
                         $showWindow = [NativeMethods]::ShowWindow($hwnd, 9)  # SW_RESTORE
                         
                         if (-not $showWindow) {
-                            Write-Host "$(Get-ElaspsedTime): Could not show $app. Skipping."
+                            Write-Host "$(Get-ElapsedTime): Could not show $app. Skipping."
                             continue
                         }
 
@@ -225,19 +233,31 @@ while ($true) {
                             if ($foregroundHwnd -eq $hwnd) { break }
                             
                             $showWindow = [NativeMethods]::ShowWindow($hwnd, 9)  # SW_RESTORE
-                            if (showWindow) {
+                            if ($showWindow) {
                                 [NativeMethods]::SetForegroundWindow($hwnd) | Out-Null
                             }
                         }
 
                         if ($elapsed -ge $timeout) {
-                            Write-Host "$(Get-ElaspsedTime): Could not focus $app. Skipping."
+                            Write-Host "$(Get-ElapsedTime): Could not focus $app. Skipping."
                             continue
+                        }
+                        else {
+                            # restore the original position and size
+                            [NativeMethods]::MoveWindow(
+                                $hwnd,
+                                $originalX,
+                                $originalY,
+                                $originalWidth,
+                                $originalHeight,
+                                $true
+                            ) | Out-Null
+
                         }
 
                         $pressKeyInstance.SimulateKeyPress($validKeysToPress)
 
-                        Write-Host "$(Get-ElaspsedTime): Pressed in $app."
+                        Write-Host "$(Get-ElapsedTime): Pressed in $app."
 
                         if (-not $SHOULD_MINIMIZE) { 
                             [NativeMethods]::SetWindowPos(
@@ -253,15 +273,26 @@ while ($true) {
                         
                     }
                     catch {
-                        Write-Host "$(Get-ElaspsedTime): Exception with ${app}: $_"
+                        Write-Host "$(Get-ElapsedTime): Exception with ${app}: $_"
                     }
                 }
             }
         }
         finally {
-            [NativeMethods]::BlockInput($false) | Out-Null
+            foreach ($procList in $activeProcs.Values) {
+                foreach ($proc in $procList) {
+                    try {
+                        if ($null -ne $proc) {
+                            try { $proc.Dispose() } catch {}
+                        }
+                    }
+                    catch {
+                        Write-Host "$(Get-ElapsedTime): Failed to dispose process: $_"
+                    }
+                }
+            }
             Invoke-Ping 600 300
-            $cycles = $currentCycle
+            [NativeMethods]::BlockInput($false) | Out-Null
         }
     }
 }
