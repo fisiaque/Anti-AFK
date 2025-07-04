@@ -308,7 +308,6 @@ Write-Host "Should Minimize: $SHOULD_MINIMIZE"
 $timer = 0
 $timeout = 2000
 $interval = 200
-$elapsed = 0
 $lastCachedProcsNames = "" 
 $alreadyMessaged = $false
 
@@ -354,8 +353,6 @@ while ($true) {
     }
 
     if ($timer -ge $AFK_TIME) {
-        $elapsed = 0
-
         $runningApps = $activeProcs.Keys
         Write-Host "$(Get-ElaspsedTime):"Waking up": $($runningApps -join ", ")"
 
